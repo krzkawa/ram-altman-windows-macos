@@ -40,7 +40,7 @@ function Send-Report($m){
  $port=587;if($env:RAM_ALTMAN_SMTP_PORT){$port=[int]$env:RAM_ALTMAN_SMTP_PORT}
  $smtp=$null;$message=New-Object System.Net.Mail.MailMessage
  try{
-  if($SenderName){$message.From=New-Object System.Net.Mail.MailAddress($Sender,$SenderName)}else{$message.From=$Sender}
+  if($SenderName){$message.From=New-Object System.Net.Mail.MailAddress -ArgumentList $Sender,$SenderName}else{$message.From=$Sender}
   $message.To.Add($Recipient);$message.Subject="Unused RAM detected on my Windows PC"
   $display=if($SenderName){$SenderName}else{"A concerned RAM owner"}
   $message.Body=@"
