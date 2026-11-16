@@ -43,7 +43,7 @@ ${SENDER_NAME:-A concerned RAM owner}
 Sent automatically, at most once a day, by a small script on one Mac.
 Reply if you'd like it to stop."
 }
-render(){ local from="$SENDER"; [[ -n "$SENDER_NAME" ]] && from="$SENDER_NAME <$SENDER>"; printf 'From: %s\nTo: %s\nSubject: %s\nDate: %s\nMIME-Version: 1.0\nContent-Type: text/plain; charset=UTF-8\nAuto-Submitted: auto-generated\n\n%s\n' "$from" "$RECIPIENT" "$email_subject" "$(date -R)" "$email_body"; }
+render(){ local from="$SENDER"; [[ -n "$SENDER_NAME" ]] && from="$SENDER_NAME <$SENDER>"; printf 'From: %s\nTo: %s\nSubject: %s\nDate: %s\nMIME-Version: 1.0\nContent-Type: text/plain; charset=UTF-8\nAuto-Submitted: auto-generated\n\n%s\n' "$from" "$RECIPIENT" "$email_subject" "$(date '+%a, %d %b %Y %H:%M:%S %z')" "$email_body"; }
 send(){ if command -v msmtp >/dev/null 2>&1; then render|msmtp -t; elif command -v sendmail >/dev/null 2>&1; then render|sendmail -t -i; else die "install and configure msmtp or sendmail before sending"; fi; }
 case "${1:-}" in
  --help|-h) echo "Usage: ram-altman-macos.sh [--status|--dry-run|--help]"; exit 0 ;;
