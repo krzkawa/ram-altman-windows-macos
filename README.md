@@ -1,178 +1,147 @@
 # Ram-Altman
 
-**A bash script that writes to Sam Altman once a day to report the RAM he missed.**
+**A tiny cross-platform RAM monitor that writes to Sam Altman when your computer has memory to spare.**
 
-Read the sample emails at **[ram-altman.lol](https://ram-altman.lol)**, no install needed.
+This fork keeps the original Linux Bash implementation and adds native macOS and Windows runners. The joke is the email; the memory readings are real estimates.
 
-[![Website: ram-altman.lol](https://img.shields.io/badge/website-ram--altman.lol-0f5a43)](https://ram-altman.lol)
-![Global DRAM allocation: quite terrible](https://img.shields.io/badge/global%20DRAM%20allocation-quite%20terrible-red)
-![Utilization: maybe 5%](https://img.shields.io/badge/utilization-maybe%205%25-orange)
-![Emails: 1 per day](https://img.shields.io/badge/emails-1%20per%20day-blue)
-![Written in Bash, not Electron](https://img.shields.io/badge/written%20in-bash%2C%20not%20electron-brightgreen)
+## Platforms
 
-There is RAM in your computer. Right now. Just sitting there, in a *personal* computer, being personal.
+| Platform | Entry point | Memory source | Scheduler |
+| --- | --- | --- | --- |
+| Linux | ./ram-altman.sh | /proc/meminfo (MemAvailable) | cron |
+| macOS | ./ram-altman-macos.sh | vm_stat + sysctl hw.memsize | launchd |
+| Windows 10/11 | ram-altman.bat | CIM + standby cache counters when available | Task Scheduler |
 
-You may have thought of this as "a computer working normally". On a recent episode of [Cheeky Pint](https://gizmodo.com/sam-altman-youre-completely-right-about-ram-im-sorry-for-the-confusion-heres-what-happened-2000835208), the CEO of OpenAI offered another view:
+All implementations support --status, --dry-run and --help. Linux remains the upstream script.
 
-> "From a global allocation perspective, actually, it's quite terrible to have everybody have a bunch of the world's limited supply of DRAM sitting in their own computer"
->
-> — Sam Altman
+## macOS
 
-That RAM, he added, is ["being used maybe 5% of the time"](https://www.xda-developers.com/sam-altman-says-its-quite-terrible-that-people-have-ram-in-their-pcs-during-a-shortage/).
+Requirements: macOS, Bash, vm_stat/sysctl (included with macOS), and either msmtp or sendmail configured for outgoing mail.
 
-Which raised an obvious question for a certain kind of person: *surely someone should be monitoring this?*
+~~~sh
+chmod +x ram-altman-macos.sh
+./ram-altman-macos.sh --status
+./ram-altman-macos.sh --dry-run
+~~~
 
-So we wrote a script. If your machine has more than 10% of its RAM available, it sends one email a day to let Sam know. It seemed only fair. He can't fix the problem if nobody tells him where the RAM is.
+The macOS available-memory figure is an estimate: free + inactive + speculative + purgeable VM pages. This is useful for a rough comparison but is **not equivalent to Linux MemAvailable** and does not fully model memory pressure, compression or every reclaimability detail.
 
-## Features
+Configure the recipient/sender variables before running:
 
-- Tracks total, used and available RAM, plus your standing with the global allocation authorities
-- Handles page cache correctly, which already puts it ahead of most arguments about RAM
-- Sends at most one email per day, because we're hoarders, not animals
-- Rotates 8 subject lines, 10 messages and 6 sign-offs, so the joke gets old at a carefully managed pace
-- Logs every sample to CSV for when the auditors arrive
-- Ships with 14 tests, more than the DRAM market has had sensible outcomes
-- Is written in bash, as an Electron version would have solved the problem by using all the RAM
+~~~sh
+export RAM_ALTMAN_TO="recipient@example.com"
+export RAM_ALTMAN_FROM="you@example.com"
+export RAM_ALTMAN_FROM_NAME="Your Name"
+export RAM_ALTMAN_THRESHOLD="10"
+~~~
 
-## A sample of today's correspondence
+Install and configure msmtp (recommended) or a compatible sendmail command. The script does not configure your mail provider or store credentials.
 
-```text
-Subject: You missed a spot
+### Run every five minutes with launchd
 
-Hi Sam,
+1. Copy com.ram-altman.monitor.plist to ~/Library/LaunchAgents/.
+2. Replace /ABSOLUTE/PATH/TO/ram-altman-macos.sh with the full path to the script.
+3. Set the required environment variables for the user launchd session, for example with launchctl setenv RAM_ALTMAN_TO recipient@example.com (repeat for RAM_ALTMAN_FROM and optional settings).
+4. Load it:
 
-Please don't be alarmed, but there is 8.6 GiB of RAM on my desk that isn't in
-a data centre. That's 56.2% of what's installed here, and as far as I can tell
-it has no plans today.
+~~~sh
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.ram-altman.monitor.plist
+launchctl kickstart -k gui/$(id -u)/lol.ram-altman.monitor
+~~~
 
-Hoarding responsibly,
-A concerned RAM owner
+To stop and unload:
 
---
-Sent automatically, at most once a day, by a small script on one PC.
-Reply if you'd like it to stop.
-```
+~~~sh
+launchctl bootout gui/$(id -u)/lol.ram-altman.monitor
+~~~
 
-The figures are real. They come from your machine. That's the worrying part.
+launchctl setenv values are session-scoped. For a permanent setup, use a carefully permissioned wrapper/config rather than putting mail credentials in a world-readable plist.
 
-## What counts as "used"?
+## Windows 10/11
 
-```text
-used = MemTotal - MemAvailable
-```
+Requirements: Windows PowerShell 5.1 (included with Windows) and an SMTP account/provider. The .bat file is a small launcher for the PowerShell implementation.
 
-`MemAvailable` is the kernel's own estimate of how much memory programs could claim without swapping. Free RAM counts as available. So does cache the kernel can reclaim. tmpfs and shared memory don't, because they can't simply be handed back.
+~~~bat
+ram-altman.bat --status
+ram-altman.bat --dry-run
+~~~
 
-Every sysadmin has spent years explaining that [Linux didn't eat your RAM](https://www.linuxatemyram.com/) and that free RAM is wasted RAM. It took decades for someone important to agree with the second part, and he'd like it shipped to him.
+Set the required environment variables in the same session before sending:
 
-Strictly speaking, the page cache is doing useful work, so counting it as available is a generous concession to the other side. Think of it as a plea bargain.
+~~~powershell
+$env:RAM_ALTMAN_TO = "recipient@example.com"
+$env:RAM_ALTMAN_FROM = "you@example.com"
+$env:RAM_ALTMAN_FROM_NAME = "Your Name"
+$env:RAM_ALTMAN_SMTP_SERVER = "smtp.example.com"
+$env:RAM_ALTMAN_SMTP_PORT = "587"
+$env:RAM_ALTMAN_SMTP_USERNAME = "you@example.com"
+$env:RAM_ALTMAN_SMTP_PASSWORD = "your-app-password"
+$env:RAM_ALTMAN_SMTP_SSL = "true"
+$env:RAM_ALTMAN_THRESHOLD = "10"
+~~~
 
-On kernels older than 3.14, which have no `MemAvailable`, the script estimates it from free memory plus reclaimable cache. If you're on one of those, your RAM may be safe. Nobody's coming for that.
+Run ram-altman.bat --dry-run before allowing a real send. Use an app password if your provider requires one; do not commit credentials or paste them into issue reports. RAM_ALTMAN_SMTP_PASSWORD is read from the environment and is never written to the repository or log.
 
-## Installation
+The Windows available-memory estimate adds FreePhysicalMemory to standby cache counters when available. Windows counter names are localized, so on non-English installations the lookup may fail and the script falls back to free physical memory only. Treat this as an estimate, not an exact equivalent of Linux MemAvailable.
 
-You'll need Linux, bash, and a working `sendmail`, `msmtp` or `mail` command. Your RAM is assumed.
+### Schedule with Task Scheduler
 
-```bash
-git clone https://github.com/IainKay/ram-altman.git
-cd ram-altman
+Create a task in Task Scheduler with a five-minute repetition interval. Set:
+
+- **Program/script:** the full path to ram-altman.bat
+- **Start in:** the repository directory
+- **Trigger:** daily, repeat every 5 minutes, indefinitely
+- **Environment:** make the RAM_ALTMAN_* values available to the task's account before running it
+
+Task Scheduler does not inherit variables from an interactive PowerShell window. Configure them for the task's account or use a private wrapper script protected with Windows file permissions. Do not put SMTP passwords in a shared/public script.
+
+## Linux
+
+The original upstream Bash implementation is retained:
+
+~~~sh
 chmod +x ram-altman.sh test-ram-altman.sh
+./ram-altman.sh --status
+./ram-altman.sh --dry-run
+~~~
 
-./ram-altman.sh --status    # see the evidence against you
-./ram-altman.sh --dry-run   # preview an email without sending it
-```
+Requires Linux, Bash and a working sendmail, msmtp or mail command. Add the following to your crontab with crontab -e:
 
-Example output, from a simulated machine that has confessed to everything:
-
-```text
-Total:      15.3 GiB
-Used:       6.7 GiB
-Available:  8.6 GiB (56.2%)
-  Free:     0.3 GiB
-  Cache:    8.2 GiB
-```
-
-To run it for real, add this to your crontab with `crontab -e`:
-
-```cron
+~~~cron
 RAM_ALTMAN_TO=recipient@example.com
 RAM_ALTMAN_FROM=you@example.com
 RAM_ALTMAN_FROM_NAME=Your Name
-
 */5 * * * * /path/to/ram-altman.sh
-```
+~~~
 
-It samples every five minutes and emails at most once a day. If a send fails, it tries again on the next run, because this message matters.
+Linux uses the kernel's MemAvailable estimate (or a fallback estimate on older kernels).
 
-| Setting | What it does | Default |
+## Shared settings
+
+| Variable | Meaning | Default |
 | --- | --- | --- |
-| `RAM_ALTMAN_TO` | Who receives the bad news | Required |
-| `RAM_ALTMAN_FROM` | A real address you can send from | Required |
-| `RAM_ALTMAN_FROM_NAME` | Your name, or your nom de RAM | Optional |
-| `RAM_ALTMAN_THRESHOLD` | Email when available RAM is above this percentage (whole number) | `10` |
-| `RAM_ALTMAN_STATE_DIR` | Where the log and state files live | `~/.local/state/ram-altman` |
+| RAM_ALTMAN_TO | Recipient address | Required for sending |
+| RAM_ALTMAN_FROM | Sender address | Required for sending |
+| RAM_ALTMAN_FROM_NAME | Sender display name | Optional |
+| RAM_ALTMAN_THRESHOLD | Send when available RAM is strictly above this percentage | 10 |
+| RAM_ALTMAN_STATE_DIR | State/log directory | Platform-specific |
+| RAM_ALTMAN_SMTP_SERVER | Windows SMTP hostname | Required on Windows |
+| RAM_ALTMAN_SMTP_PORT | Windows SMTP port | 587 |
+| RAM_ALTMAN_SMTP_USERNAME | Windows SMTP username | Optional |
+| RAM_ALTMAN_SMTP_PASSWORD | Windows SMTP password/app password | Required when username is set |
+| RAM_ALTMAN_SMTP_SSL | Enable Windows SMTP TLS | true |
 
-## Audit yourself
-
-Let it run for a while, then find out how your machine compares:
-
-```bash
-awk -F, 'NR>1 { used += $3; total += $2 }
-  END { if (total) printf "Your RAM in use: %.1f%% (the claim: maybe 5%%)\n", used * 100 / total }' \
-  ~/.local/state/ram-altman/usage.csv
-```
-
-Yes, share of memory in use isn't the same thing as share of time spent in use. If you came here to say that, welcome to Hacker News. We're glad you're here.
+Each platform keeps its own CSV usage log and last-send date. A successful run sends at most one email per day. Failed sends are not recorded as successful, so a later run can retry. --dry-run never sends mail or changes the daily-send state.
 
 ## Please be a good neighbour
 
 One email a day from one person is a joke. Ten thousand of them is a denial-of-service attack with better material.
 
-- **`--dry-run` is the best way to enjoy this.** It costs nothing and all the jokes are there.
-- **This repo doesn't ship with anyone's email address,** and please don't add one.
-- **Use your own real address.** No spoofing, and no running it across your server fleet.
-- **If anyone asks you to stop, stop.** The footer of every email promises this, so keep the promise.
-
-You can also point it at someone who will enjoy it, like the friend who has been waiting for DDR5 prices to come down.
-
-## FAQ
-
-**Does this help with the DRAM shortage?**
-No.
-
-**Is this a serious tool?**
-The memory accounting is. The correspondence isn't.
-
-**Does it work on macOS?**
-No, it reads `/proc/meminfo`. On the other hand, your RAM is probably soldered down, which makes you the hardest target in the global allocation programme.
-
-**Why is the threshold 10%?**
-Below that, your machine has suffered enough.
-
-**Does running this use RAM?**
-Briefly. It's then returned to the global pool, which is more than can be said for the rest of us.
-
-**Can I run the tests without emailing anyone?**
-Yes. `./test-ram-altman.sh` uses simulated memory and a fake `sendmail`. No inboxes are harmed.
-
-**Can I see it without installing anything?**
-Yes. [ram-altman.lol](https://ram-altman.lol) cycles through the real emails, with sample figures.
-
-**What should I do with all this RAM?**
-Open another browser tab. You've still got time.
-
-## In fairness to Sam
-
-Altman has since [said the remarks were taken out of context](https://gizmodo.com/sam-altman-youre-completely-right-about-ram-im-sorry-for-the-confusion-heres-what-happened-2000835208), writing:
-
-> "i actually do want the world to have tons of memory and people to put as much as they want in their computers"
-
-He [followed up](https://www.gadgetreview.com/sam-altman-says-he-wants-you-to-have-even-more-ram-not-less-changes-name-to-ram-altman) with "i want you to have so much ram" and "lets build more", and briefly changed his display name on X to Ram Altman, which is objectively excellent and is where this project gets its name.
-
-The original remarks [came up in a discussion of running AI models locally](https://www.engadget.com/2303266/sam-altman-says-its-terrible-dram-computer/), and the utilization argument is a real one: servers really are busier than your desktop. We just think it's funnier to reply with cron.
-
-Besides, if he wants you to have so much RAM, then this script isn't a complaint at all. It's a daily progress report.
+- **Use --dry-run first.** It costs nothing and lets you inspect the message.
+- Use an address you control and a legitimate sender account. No spoofing.
+- Do not deploy this across a server fleet or use it to spam anyone.
+- If anyone asks you to stop, stop.
 
 ## License
 
-Free as in unallocated.
+See LICENSE.
